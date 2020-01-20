@@ -1,0 +1,3 @@
+[submodule "utility"]
+	path = utility
+	url = git@github.com:ashen7/utility.git
