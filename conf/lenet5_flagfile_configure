@@ -1,0 +1,42 @@
+#LeNet-5 mnist gflags configure file
+# 第一层 卷积层 输入28*28*1 填充后32*32*1 步长1 输出28*28*32
+-conv1_input_height=28
+-conv1_input_width=28
+-conv1_channel_number=1
+-conv1_filter_height=5
+-conv1_filter_width=5
+-conv1_filter_number=32
+-conv1_zero_padding=2
+-conv1_stride=1
+
+# 第二层 池化层 输入28*28*32 步长2 输出14*14*32
+-pool2_filter_height=2
+-pool2_filter_width=2
+-pool2_stride=2
+
+# 第三层 卷积层 输入14*14*32 填充后18*18*32 步长1 输出14*14*64
+-conv3_filter_height=5
+-conv3_filter_width=5
+-conv3_filter_number=64
+-conv3_zero_padding=2
+-conv3_stride=1
+
+# 第四层 池化层 输入14*14*64 输出7*7*64
+-pool4_filter_height=2
+-pool4_filter_width=2
+-pool4_stride=2
+
+# 第五层 全连接层 输入7*7*64=3136*1 输出512*1
+-fc5_output_node=512
+
+# 第六层 全连接层(输出层) 输入512*1 输出10*1
+-fc6_output_node=10
+
+# 训练参数 mini-batch梯度下降 一batch大小为100 一epoch迭代mnist_training_data_szie / batch_size次
+-batch_size=100
+-epoch=0
+-learning_rate=0.5
+
+# mnist数据集参数
+-mnist_training_data_szie=1000
+-mnist_test_data_szie=20
