@@ -37,7 +37,8 @@ Filter::~Filter() {
  */
 void Filter::Initialize(size_t height, size_t width, size_t depth) {
     //生成随机数 来初始化 权重数组 
-    Random::Uniform(-0.0001, 0.0001, depth, height, width, weights_array_);
+    //Random::Uniform(-0.0001, 0.0001, depth, height, width, weights_array_);
+    Random::Uniform(-0.1, 0.1, depth, height, width, weights_array_);
     bias_ = 0.0;
     
     //初始化梯度为0
