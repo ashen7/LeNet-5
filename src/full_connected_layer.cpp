@@ -28,8 +28,11 @@
 namespace dnn {
 
 //静态成员的初始化
-FullConnectedLayer::ReLuActivatorCallback FullConnectedLayer::relu_forward_callback_(nullptr);
-FullConnectedLayer::ReLuActivatorCallback FullConnectedLayer::relu_backward_callback_(nullptr);
+FullConnectedLayer::SigmoidActivatorCallback FullConnectedLayer::sigmoid_forward_callback_(nullptr);
+FullConnectedLayer::SigmoidActivatorCallback FullConnectedLayer::sigmoid_backward_callback_(nullptr);
+FullConnectedLayer::ReLuActivatorCallback    FullConnectedLayer::relu_forward_callback_(nullptr);
+FullConnectedLayer::ReLuActivatorCallback    FullConnectedLayer::relu_backward_callback_(nullptr);
+FullConnectedLayer::Matrix2d FullConnectedLayer::binomial_array_(1, FullConnectedLayer::Matrix1d(1));
 
 FullConnectedLayer::FullConnectedLayer() {
 }
@@ -67,25 +70,48 @@ int FullConnectedLayer::Initialize(size_t input_node_size,
  * 前向计算 a = f(w .* x + b)  输出等于激活函数(权重数组 点积 输入数组 最后数组和偏置数组相加)
  * 下一层前向计算的输入数组 就是上一层的输出数组
  */  
-int FullConnectedLayer::Forward(const Matrix2d& input_array) {
+int FullConnectedLayer::Forward(const Matrix2d& input_array, 
+                                bool dropout, float p) {
     //得到本层输入矩阵 也就是本层的节点值
     input_array_ = input_array;
 
     //矩阵相乘  w .* x 得到输出数组
     if (-1 == Matrix::DotProduct(weights_array_, input_array_, output_array_)) {
+        LOG(ERROR) << "full connected layer forward failed";
         return -1;
     }
     //矩阵相加 w .* x + b
     if (-1 == Matrix::Add(output_array_, biases_array_, output_array_)) {
+        LOG(ERROR) << "full connected layer forward failed";
         return -1;
     }
     
     //激活函数 得到本层输出数组 f(w .* x + b)
-    if (relu_forward_callback_) {
-        relu_forward_callback_(output_array_, output_array_);
+    if (is_input_layer_) {
+        //输入层就用relu做激活函数 如果是train有dropout 还要dropout一下 测试没有
+        if (relu_forward_callback_) {
+            //relu_forward_callback_(output_array_, output_array_);
+            sigmoid_forward_callback_(output_array_, output_array_);
+            if (dropout) {
+                if (-1 == Random::DropOut(output_array_, 1, p, 
+                                          binomial_array_, 
+                                          output_array_)) {
+                    LOG(ERROR) << "full connected layer forward failed, dropout occur error";
+                    return -1;
+                }
+            }
+        } else {
+            LOG(ERROR) << "full connected layer forward failed, relu forward activator is empty";
+            return -1;
+        }
     } else {
-        LOG(WARNING) << "前向传播激活函数为空...";
-        return -1;
+        //输出层用sigmoid激活函数 不用dropout
+        if (sigmoid_forward_callback_) {
+            sigmoid_forward_callback_(output_array_, output_array_);
+        } else {
+            LOG(ERROR) << "full connected layer forward failed, sigmoid forward activator is empty";
+            return -1;
+        }
     }
 
     return 0;
@@ -97,40 +123,67 @@ int FullConnectedLayer::Forward(const Matrix2d& input_array) {
  * w权重的梯度 就是 delta_array .* xT  下一层的误差项 点积 本层节点值的转置矩阵
  * b偏置的梯度 就是 delta_array
  */
-int FullConnectedLayer::Backward(const Matrix2d& output_delta_array) {
+int FullConnectedLayer::Backward(const Matrix2d& output_delta_array, 
+                                 bool dropout, float p) {
     Matrix2d temp_array1;
-    if (relu_backward_callback_) {
+    if (sigmoid_backward_callback_) {
         // 计算x * (1 - x)
-        relu_backward_callback_(input_array_, temp_array1);
+        sigmoid_backward_callback_(input_array_, temp_array1);
     } else {
-        LOG(WARNING) << "反向传播激活函数为空...";
+        LOG(ERROR) << "full connected layer backward failed, sigmoid backward activator is empty";
         return -1;
     }
     
     //计算w的转置矩阵 WT 
     Matrix2d weights_transpose_array;
     if (-1 == Matrix::Transpose(weights_array_, weights_transpose_array)) {
+        LOG(ERROR) << "full connected layer backward failed";
         return -1;
     }
     
     Matrix2d temp_array2;
     //计算WT .* delta_array
     if (-1 == Matrix::DotProduct(weights_transpose_array, output_delta_array, temp_array2)) {
+        LOG(ERROR) << "full connected layer backward failed";
         return -1;
     }
 
     //计算x * (1 - x) * WT .* delta_array 得到本层的delta_array
     if (-1 == Matrix::HadamarkProduct(temp_array1, temp_array2, delta_array_)) {
+        LOG(ERROR) << "full connected layer backward failed";
         return -1;
     }
     
+    //如果有dropout 
+    if (!is_input_layer_ && dropout) {
+        if (-1 == Matrix::HadamarkProduct(delta_array_, binomial_array_, delta_array_)) {
+            LOG(ERROR) << "full connected layer backward failed";
+            return -1;
+        }
+        
+        if (-1 == Matrix::MatrixDivValue(delta_array_, 1.0 - p, delta_array_)) {
+            LOG(ERROR) << "full connected layer backward failed";
+            return -1;
+        }
+        
+        Matrix2d temp_array;
+        if (relu_backward_callback_) {
+            relu_backward_callback_(input_array_, temp_array);
+        }
+        if (-1 == Matrix::HadamarkProduct(delta_array_, temp_array, delta_array_)) {
+            LOG(ERROR) << "full connected layer backward failed";
+            return -1;
+        }
+    }
     //利用上一层的误差项delta_array 计算weights的梯度 delta_array .* xT
     Matrix2d input_transpose_array;
     Matrix2d weights_gradient_array;
     if (-1 == Matrix::Transpose(input_array_, input_transpose_array)) {
+        LOG(ERROR) << "full connected layer backward failed";
         return -1;
     }
     if (-1 == Matrix::DotProduct(output_delta_array, input_transpose_array, weights_gradient_array)) {
+        LOG(ERROR) << "full connected layer backward failed";
         return -1;
     }
     
