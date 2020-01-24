@@ -49,6 +49,27 @@ int NeuralNetwork::Initialize(const std::vector<size_t>& fc_layer_nodes_array) {
             LOG(ERROR) << "neural network initialize failed, full connected layer initialize occur error";
             return -1;
         }
+
+        //输入层设置一个flag 用于dropout
+        if (0 == i) {
+            fc_layers_array_[i]->set_is_input_layer(true);
+        } else {
+            fc_layers_array_[i]->set_is_input_layer(false);
+        }
+    }
+
+    //设置全连接层的前向计算激活函数回调
+    if (nullptr == FullConnectedLayer::get_sigmoid_forward_callback()) {
+        FullConnectedLayer::set_sigmoid_forward_callback(std::bind(Activator::SigmoidForward, 
+                                                         std::placeholders::_1,
+                                                         std::placeholders::_2));
+    }
+
+    //设置全连接层的反向计算激活函数回调
+    if (nullptr == FullConnectedLayer::get_sigmoid_backward_callback()) {
+        FullConnectedLayer::set_sigmoid_backward_callback(std::bind(Activator::SigmoidBackward, 
+                                                          std::placeholders::_1,
+                                                          std::placeholders::_2));
     }
 
     //设置全连接层的前向计算激活函数回调
@@ -60,9 +81,9 @@ int NeuralNetwork::Initialize(const std::vector<size_t>& fc_layer_nodes_array) {
 
     //设置全连接层的反向计算激活函数回调
     if (nullptr == FullConnectedLayer::get_relu_backward_callback()) {
-        FullConnectedLayer::set_relu_backward_callback(std::bind(Activator::SigmoidBackward, 
-                                                          std::placeholders::_1,
-                                                          std::placeholders::_2));
+        FullConnectedLayer::set_relu_backward_callback(std::bind(Activator::ReLuBackward2d, 
+                                                       std::placeholders::_1,
+                                                       std::placeholders::_2));
     }
 
     return 0;
@@ -81,7 +102,7 @@ int NeuralNetwork::Train(const Matrix3d& training_data_set,
         //遍历每一个输入特征 拿去训练 训练完所有数据集 就是训练完成一轮
         for (int d = 0; d < training_data_set.size(); d++) {
             if (-1 == TrainOneSample(training_data_set[d], labels[d], learning_rate)) {
-                LOG(ERROR) << "训练失败...";
+                LOG(ERROR) << "neural network train failed";
                 return -1;
             }
         }
@@ -118,14 +139,17 @@ int NeuralNetwork::TrainOneSample(const Matrix2d& sample,
  * 前向计算 实现预测 也就是利用当前网络的权值计算节点的输出值 
  */
 int NeuralNetwork::Predict(const Matrix2d& input_array, 
-                           Matrix2d& output_array) {
+                           Matrix2d& output_array, 
+                           bool dropout, float p) {
     for (int i = 0; i < fc_layers_array_.size(); i++) {
         if (0 == i) {
-            if (-1 == fc_layers_array_[i]->Forward(input_array)) {
+            if (-1 == fc_layers_array_[i]->Forward(input_array, dropout, p)) {
+                LOG(ERROR) << "neural network forward failed";
                 return -1;
             }
         } else {
-            if (-1 == fc_layers_array_[i]->Forward(fc_layers_array_[i - 1]->get_output_array())) {
+            if (-1 == fc_layers_array_[i]->Forward(fc_layers_array_[i - 1]->get_output_array(), dropout, p)) {
+                LOG(ERROR) << "neural network forward failed";
                 return -1;
             }
         }
@@ -146,35 +170,38 @@ int NeuralNetwork::Predict(const Matrix2d& input_array,
  */
 int NeuralNetwork::CalcGradient(const Matrix2d& output_array, 
                                 const Matrix2d& label, 
-                                Matrix2d& fc_input_layer_delta_array) {
+                                Matrix2d& fc_input_layer_delta_array, 
+                                bool dropout, float p) {
     //得到output(1 - output)
     Matrix2d delta_array; 
-    if (FullConnectedLayer::get_relu_backward_callback()) {
-        auto relu_backward_callback = FullConnectedLayer::get_relu_backward_callback();
-        relu_backward_callback(output_array, delta_array);
+    if (FullConnectedLayer::get_sigmoid_backward_callback()) {
+        auto sigmoid_backward_callback = FullConnectedLayer::get_sigmoid_backward_callback();
+        sigmoid_backward_callback(output_array, delta_array);
     } else {
-        LOG(WARNING) << "反向传播激活函数为空...";
+        LOG(ERROR) << "neural network backward failed, sigmoid backward activator is empty";
         return -1;
     }
      
     //计算(label - output)
     Matrix2d sub_array; 
     if (-1 == Matrix::Subtract(label, output_array, sub_array)) {
+        LOG(ERROR) << "neural network backward failed";
         return -1;
     }
 
     //再计算output(1 - output)(label - output)  得到输出层的delta array误差项
     if (-1 == Matrix::HadamarkProduct(delta_array, sub_array, delta_array)) {
+        LOG(ERROR) << "neural network backward failed";
         return -1;
     }
 
     //从输出层往前反向计算误差项 和梯度
     for (int i = fc_layers_array_.size() - 1; i >= 0; i--) {
         if (i == fc_layers_array_.size() - 1) {
-            fc_layers_array_[i]->Backward(delta_array);
+            fc_layers_array_[i]->Backward(delta_array, dropout, p);
         } else {
             //用后一层的delta array 去得到本层的delta array和本层的权重梯度 偏置梯度
-            fc_layers_array_[i]->Backward(fc_layers_array_[i + 1]->get_delta_array());
+            fc_layers_array_[i]->Backward(fc_layers_array_[i + 1]->get_delta_array(), dropout, p);
         }
     }
     
@@ -247,6 +274,42 @@ void NeuralNetwork::GradientCheck(const Matrix2d& sample,
     }
 }
 
+/*
+ * 保存模型
+ */
+int NeuralNetwork::DumpModel(std::shared_ptr<double> weights_array, int& index) {
+    for (const auto& fc_layer : fc_layers_array_) {
+        if (-1 == Matrix::CopyTo(fc_layer->get_weights_array(), index, weights_array)) {
+            LOG(ERROR) << "full connected layer save model failed";
+            return -1;
+        }
+        if (-1 == Matrix::CopyTo(fc_layer->get_biases_array(), index, weights_array)) {
+            LOG(ERROR) << "full connected layer save model failed";
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+/*
+ * check是否dump成功
+ */
+bool NeuralNetwork::IsDumpModelSuccess(const Matrix3d& weights,
+                                       const Matrix3d& biases) {
+    for (int i = 0; i < fc_layers_array_.size(); i++) {
+        if (weights[i] != fc_layers_array_[i]->get_weights_array()) {
+            LOG(ERROR) << "Dump LeNet-5 Model Failed, full connected layer dump occur error";
+            return false;
+        }
+        if (biases[i] != fc_layers_array_[i]->get_biases_array()) {
+            LOG(ERROR) << "Dump LeNet-5 Model Failed, full connected layer dump occur error";
+            return false;
+        }
+    }
+    
+    return true;
+}
 
 }    //namespace dnn
 
