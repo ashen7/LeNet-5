@@ -19,6 +19,7 @@
 #define DNN_FULL_CONNECTED_LAYER_H_
 
 #include <memory>
+#include <map>
 #include <vector>
 #include <functional>
 
@@ -27,10 +28,12 @@ namespace dnn {
 //全连接层实现类
 class FullConnectedLayer {
 public:
+    typedef std::vector<double> Matrix1d;
     typedef std::vector<std::vector<double>> Matrix2d;
     typedef std::vector<std::vector<std::vector<double>>> Matrix3d;
     typedef std::vector<std::vector<uint8_t>> ImageMatrix2d;
     typedef std::vector<std::vector<std::vector<uint8_t>>> ImageMatrix3d;
+    typedef std::function<void(const Matrix2d&, Matrix2d&)> SigmoidActivatorCallback;
     typedef std::function<void(const Matrix2d&, Matrix2d&)> ReLuActivatorCallback;
 
     FullConnectedLayer();
@@ -45,6 +48,10 @@ public:
         return weights_array_;
     }
 
+    const Matrix2d& get_biases_array() const noexcept {
+        return biases_array_;
+    }
+
     const Matrix2d& get_weights_gradient_array() const noexcept {
         return weights_gradient_array_;
     }
@@ -56,6 +63,22 @@ public:
     //优化 复制省略
     const Matrix2d& get_delta_array() const noexcept {
         return delta_array_;
+    }
+
+    static void set_sigmoid_forward_callback(SigmoidActivatorCallback forward_callback) {
+        sigmoid_forward_callback_ = forward_callback;
+    }
+
+    static void set_sigmoid_backward_callback(SigmoidActivatorCallback backward_callback) {
+        sigmoid_backward_callback_ = backward_callback;
+    }
+    
+    static SigmoidActivatorCallback get_sigmoid_forward_callback() { 
+        return sigmoid_forward_callback_;
+    }
+
+    static SigmoidActivatorCallback get_sigmoid_backward_callback() {
+        return sigmoid_backward_callback_;
     }
 
     static void set_relu_forward_callback(ReLuActivatorCallback forward_callback) {
@@ -74,16 +97,31 @@ public:
         return relu_backward_callback_;
     }
 
+    static Matrix2d& get_binomial_array() {
+        return binomial_array_;
+    }
+
+    void set_is_input_layer(bool is_input_layer) noexcept {
+        is_input_layer_ = is_input_layer;
+    }
+
+    bool get_is_input_layer() const noexcept {
+        return is_input_layer_;
+    }
+
 public:
     int Initialize(size_t input_node_size, size_t output_node_size); 
-    int Forward(const Matrix2d& input_array);
-    int Backward(const Matrix2d& output_delta_array);
+    int Forward(const Matrix2d& input_array, bool dropout=false, float p=0.0);
+    int Backward(const Matrix2d& output_delta_array, bool dropout=false, float p=0.0);
     void UpdateWeights(double learning_rate, int batch_size);
     void Dump() const noexcept;
 
 protected:
-    static ReLuActivatorCallback relu_forward_callback_;  //激活函数的前向计算
-    static ReLuActivatorCallback relu_backward_callback_; //激活函数的反向计算 
+    static SigmoidActivatorCallback sigmoid_forward_callback_;  //sigmoid激活函数的前向计算
+    static SigmoidActivatorCallback sigmoid_backward_callback_; //sigmoid激活函数的反向计算 
+    static ReLuActivatorCallback    relu_forward_callback_;     //relu激活函数的前向计算
+    static ReLuActivatorCallback    relu_backward_callback_;    //relu激活函数的反向计算 
+    static Matrix2d binomial_array_;  //二项分布数组
 
 private:
     bool is_input_layer_;             //是否是输入层
