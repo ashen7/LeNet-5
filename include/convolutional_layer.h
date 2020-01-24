@@ -39,6 +39,7 @@ public:
     typedef std::vector<double> Matrix1d;
     typedef std::vector<std::vector<double>> Matrix2d;
     typedef std::vector<std::vector<std::vector<double>>> Matrix3d;
+    typedef std::vector<std::vector<std::vector<std::vector<double>>>> Matrix4d;
     typedef std::vector<std::vector<uint8_t>> ImageMatrix2d;
     typedef std::vector<std::vector<std::vector<uint8_t>>> ImageMatrix3d;
     typedef std::function<void(const Matrix3d&, Matrix3d&)> ReLuActivatorCallback;
@@ -120,6 +121,8 @@ public:
     int ExpandSensitivityMap(const Matrix3d& input_sensitivity_array, 
                              Matrix3d& output_sensitivity_array);
     void Dump() const noexcept;
+    int DumpModel(std::shared_ptr<double> weights_array, int& index);
+    bool IsDumpModelSuccess(const Matrix4d& weights, const Matrix1d& biases);
 
     int GradientCheck(const Matrix3d& input_array);
 
