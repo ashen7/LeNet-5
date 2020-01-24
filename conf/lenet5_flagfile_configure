@@ -33,10 +33,13 @@
 -fc6_output_node=10
 
 # 训练参数 mini-batch梯度下降 一batch大小为100 一epoch迭代mnist_training_data_szie / batch_size次
--batch_size=100
+-batch_size=10
 -epoch=0
--learning_rate=0.5
+-learning_rate=0.1
 
 # mnist数据集参数
--mnist_training_data_szie=1000
--mnist_test_data_szie=20
+-mnist_training_data_size=2000
+-mnist_test_data_size=50
+
+# lenet训练输出权值文件
+-lenet_weights_output_file=backup/lenet5.weights
