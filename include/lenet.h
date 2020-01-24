@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <vector>
+#include <atomic>
 #include <functional>
 
 #include "utility/singleton.hpp"
@@ -63,8 +64,21 @@ public:
     const Matrix3d& get_delta_array() const noexcept {
         return delta_array_;
     }
-    
+
+    std::shared_ptr<double> get_weights_biases_data() const noexcept {
+        return weights_biases_data_;
+    }
+
+    int get_weights_biases_data_size() const noexcept {
+        return weights_biases_data_size_;
+    }
+
+    void set_stop_flag(bool stop_flag) noexcept {
+        stop_flag_ = stop_flag;
+    }
+
 public:
+    //初始化
     int Initialize(int conv1_input_height,  int conv1_input_width,  int conv1_channel_number, 
                    int conv1_filter_height, int conv1_filter_width, int conv1_filter_number, 
                    int conv1_zero_padding,  int conv1_stride, 
@@ -72,8 +86,7 @@ public:
                    int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
                    int conv3_zero_padding,  int conv3_stride, 
                    int pool4_filter_height, int pool4_filter_width, int pool4_stride, 
-                   int fc5_output_node,     int fc6_output_node,    double learning_rate, 
-                   const Matrix3d& sample);
+                   int fc5_output_node,     int fc6_output_node,    const Matrix3d& sample);
     int Initialize(int conv1_input_height,  int conv1_input_width,  int conv1_channel_number, 
                    int conv1_filter_height, int conv1_filter_width, int conv1_filter_number, 
                    int conv1_zero_padding,  int conv1_stride, 
@@ -81,19 +94,38 @@ public:
                    int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
                    int conv3_zero_padding,  int conv3_stride, 
                    int pool4_filter_height, int pool4_filter_width, int pool4_stride, 
-                   int fc5_output_node,     int fc6_output_node,    double learning_rate, 
-                   const ImageMatrix3d& sample);
-    int Train(const Matrix4d& training_sample, const Matrix3d& training_label, int batch_size);
-    int Train(const ImageMatrix4d& training_sample, const Matrix3d& training_label, int batch_size);
+                   int fc5_output_node,     int fc6_output_node,    const ImageMatrix3d& sample);
+    //训练
+    int Train(const Matrix4d& training_sample, 
+              const Matrix3d& training_label,
+              double learning_rate, int batch_size);
+    int Train(const ImageMatrix4d& training_sample,
+              const Matrix3d& training_label,
+              double learning_rate, int batch_size);
+    //预测
     int Predict(const Matrix3d& input_array, Matrix2d& output_array);
     int Predict(const ImageMatrix3d& input_array, Matrix2d& output_array);
+    //计算梯度
     int CalcGradient(const Matrix2d& output_array, Matrix3d& delta_array);
-    int Forward(const Matrix3d& input_array);
-    int Forward(const ImageMatrix3d& input_array);
-    int Backward(const Matrix2d& label); 
+    //前向计算
+    int Forward(const Matrix3d& input_array, bool dropout=false, float p=0.0);
+    int Forward(const ImageMatrix3d& input_array, bool dropout=false, float p=0.0);
+    //反向计算
+    int Backward(const Matrix2d& label, bool dropout=false, float p=0.0); 
+    //更新网络权重
     void UpdateWeights(double learning_rate, int batch_size);
+    //计算loss
     double Loss(const Matrix2d& output_array, const Matrix2d& label) const noexcept;
-    //void Dump() const noexcept;
+    //保存模型权值
+    int DumpModel(std::string weights_file);  
+    //加载模型权值
+    int LoadModel(std::string weights_file);
+    //check保存的模型权值是否正确
+    bool IsDumpModelSuccess(const Matrix4d& conv1_weights, const Matrix1d& conv1_biases, 
+                            const Matrix4d& conv3_weights, const Matrix1d& conv3_biases, 
+                            const Matrix3d& fc5_weights,   const Matrix3d& fc5_biases);
+    //打印网络权重
+    void Dump();  
 
 protected:
     //内部函数
@@ -130,14 +162,15 @@ private:
     int fc5_output_node_;        //构造第5层 全连接层的参数
     int fc6_output_node_;        //构造第6层 全连接层的参数(输出层)
 
-    double learning_rate_;       //学习率
-    
     int pool4_output_depth_;     //记录第四层 池化层输出的深度 高 宽 reshape时使用
     int pool4_output_height_;
     int pool4_output_width_;
-
+    
+    std::atomic<bool> stop_flag_;//进程退出旗帜
     Matrix2d output_array_;      //输出数组
     Matrix3d delta_array_;       //误差数组
+    int weights_biases_data_size_;                 //权重 和 偏置数组数据大小
+    std::shared_ptr<double> weights_biases_data_;  //权重 和 偏置数组数据
 
     std::shared_ptr<ConvolutionalLayer> convolutional_layer1_;  //第一层 卷积层
     std::shared_ptr<MaxPoolingLayer>    max_pooling_layer2_;    //第二层 池化层
