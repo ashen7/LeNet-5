@@ -473,10 +473,41 @@ int ConvolutionalLayer::GradientCheck(const Matrix3d& input_array) {
         }
     }
 
-
+    return 0;
 }
 
+/*
+ * 保存模型
+ */
+int ConvolutionalLayer::DumpModel(std::shared_ptr<double> weights_array, int& index) {
+    for (const auto& filter : filters_) {
+        if (-1 == Matrix::CopyTo(filter->get_weights_array(), index, weights_array)) {
+            LOG(ERROR) << "conv layer save model failed";
+            return -1;
+        }
+        weights_array.get()[index++] = filter->get_bias();
+    }
 
+    return 0;
+}
+
+/*
+ * 加载模型是否成功
+ */
+bool ConvolutionalLayer::IsDumpModelSuccess(const Matrix4d& weights, const Matrix1d& biases) {
+    for (int i = 0; i < filter_number_; i++){
+        if (weights[i] != filters_[i]->get_weights_array()) {
+            LOG(ERROR) << "Dump LeNet-5 Model Failed, conv layer dump occur error";
+            return false;
+        }
+        if (biases[i] != filters_[i]->get_bias()) {
+            LOG(ERROR) << "Dump LeNet-5 Model Failed, conv layer dump occur error";
+            return false;
+        }
+    }
+
+    return true;
+}
 
 
 
