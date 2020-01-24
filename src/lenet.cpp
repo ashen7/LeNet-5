@@ -25,6 +25,7 @@
 #include <memory>
 #include <vector>
 #include <functional>
+#include <fstream>
 
 #include <glog/logging.h>
 
@@ -39,6 +40,9 @@ LeNet::LeNet() {
     convolutional_layer3_ = std::make_shared<ConvolutionalLayer>();
     max_pooling_layer4_ = std::make_shared<MaxPoolingLayer>();
     neural_network_layer5_ = std::make_shared<dnn::NeuralNetwork>(); 
+
+    conv1_input_height_ = 0;
+    stop_flag_ = false;
 }
 
 LeNet::~LeNet() {
@@ -48,6 +52,9 @@ LeNet::~LeNet() {
     convolutional_layer3_.reset();
     max_pooling_layer4_.reset();
     neural_network_layer5_.reset();
+
+    //释放保存模型的权重和偏置数据
+    weights_biases_data_.reset();
 }
 
 /*
@@ -68,8 +75,7 @@ int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1
                       int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
                       int conv3_zero_padding,  int conv3_stride, 
                       int pool4_filter_height, int pool4_filter_width, int pool4_stride,
-                      int fc5_output_node,     int fc6_output_node,    double learning_rate, 
-                      const Matrix3d& sample) {
+                      int fc5_output_node,     int fc6_output_node,    const Matrix3d& sample) {
     if (conv1_input_height <= 0
             || conv1_input_width <= 0
             || conv1_channel_number <= 0
@@ -90,8 +96,100 @@ int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1
             || pool4_filter_width <= 0
             || pool4_stride <= 0
             || fc5_output_node <= 0
-            || fc6_output_node <= 0
-            || learning_rate <= 0.0) {
+            || fc6_output_node <= 0) {
+        LOG(ERROR) << "LeNet-5 initialize failed, input parameter is wrong";
+        return -1;
+    }
+    
+    //判断是否是第一次initialize
+    if (0 != conv1_input_height_) {
+        LOG(ERROR) << "LeNet-5 is already initialized";
+        return -1;
+    }
+    conv1_input_height_ = conv1_input_height;
+    conv1_input_width_ = conv1_input_width;
+    conv1_channel_number_ = conv1_channel_number;
+    conv1_filter_height_ = conv1_filter_height;
+    conv1_filter_width_ = conv1_filter_width;
+    conv1_filter_number_ = conv1_filter_number;
+    conv1_zero_padding_ = conv1_zero_padding;
+    conv1_stride_ = conv1_stride;
+
+    pool2_filter_height_ = pool2_filter_height;
+    pool2_filter_width_ = pool2_filter_width;
+    pool2_stride_ = pool2_stride;
+
+    conv3_filter_height_ = conv3_filter_height;
+    conv3_filter_width_ = conv3_filter_width;
+    conv3_filter_number_ = conv3_filter_number;
+    conv3_zero_padding_ = conv3_zero_padding;
+    conv3_stride_ = conv3_stride;
+
+    pool4_filter_height_ = pool4_filter_height;
+    pool4_filter_width_ = pool4_filter_width;
+    pool4_stride_ = pool4_stride;
+
+    fc5_output_node_ = fc5_output_node;
+    fc6_output_node_ = fc6_output_node;
+
+    //先调用第一层卷积层的初始化 卷积层会初始化权重数组和偏置
+    //后面算出本层的输入 得到输出数组的shape 就能去初始化下一层 依次
+    if (-1 == convolutional_layer1_->Initialize(conv1_input_height, conv1_input_width, conv1_channel_number,
+                                                conv1_filter_height, conv1_filter_width, conv1_filter_number, 
+                                                conv1_zero_padding, conv1_stride)) {
+        LOG(ERROR) << "LeNet-5 initialize failed, convolutional layer 1 input parameter is wrong";
+        return -1;
+    }
+
+    //调用InitLeNetModel 初始化LeNet所有层 通过前向计算一层层得到输出 传入下一层来初始化
+    if (-1 == InitLeNetModel(sample)) {
+        LOG(ERROR) << "LeNet-5 initialize failed, Init LeNet Model occur error";
+        return -1;
+    }
+    
+    return 0;
+}
+
+/*
+ * 初始化LeNet-5
+ * 第一层卷积层   输入的宽高深度 filter的宽高个数 补0填充 步长
+ * 第二层池化层   filter的宽高(深度不变) 步长
+ * 第三层卷积层   filter的宽高个数 补0填充 步长
+ * 第四层池化层   filter的宽高(深度不变) 步长
+ * 第五层全连接层 输出节点数量
+ * 第六层全连接层 输出节点数量(输出层)
+ * 学习率
+ * 一个样本(输入特征) 用来计算一次前向传播 来初始化LeNet每层
+ */
+int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1_channel_number, 
+                      int conv1_filter_height, int conv1_filter_width, int conv1_filter_number, 
+                      int conv1_zero_padding,  int conv1_stride, 
+                      int pool2_filter_height, int pool2_filter_width, int pool2_stride, 
+                      int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
+                      int conv3_zero_padding,  int conv3_stride, 
+                      int pool4_filter_height, int pool4_filter_width, int pool4_stride,
+                      int fc5_output_node,     int fc6_output_node,    const ImageMatrix3d& sample) {
+    if (conv1_input_height <= 0
+            || conv1_input_width <= 0
+            || conv1_channel_number <= 0
+            || conv1_filter_height <= 0
+            || conv1_filter_width <= 0
+            || conv1_filter_number <= 0
+            || conv1_zero_padding < 0
+            || conv1_stride <= 0
+            || pool2_filter_height <= 0
+            || pool2_filter_width <= 0
+            || pool2_stride <= 0 
+            || conv3_filter_height <= 0
+            || conv3_filter_width <= 0
+            || conv3_filter_number <= 0
+            || conv3_zero_padding < 0
+            || conv3_stride <= 0
+            || pool4_filter_height <= 0
+            || pool4_filter_width <= 0
+            || pool4_stride <= 0
+            || fc5_output_node <= 0
+            || fc6_output_node <= 0) {
         LOG(ERROR) << "LeNet-5 initialize failed, input parameter is wrong";
         return -1;
     }
@@ -122,8 +220,6 @@ int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1
     fc5_output_node_ = fc5_output_node;
     fc6_output_node_ = fc6_output_node;
 
-    learning_rate_ = learning_rate;
-    
     //先调用第一层卷积层的初始化 卷积层会初始化权重数组和偏置
     //后面算出本层的输入 得到输出数组的shape 就能去初始化下一层 依次
     if (-1 == convolutional_layer1_->Initialize(conv1_input_height, conv1_input_width, conv1_channel_number,
@@ -141,99 +237,6 @@ int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1
 
     return 0;
 }
-
-/*
- * 初始化LeNet-5
- * 第一层卷积层   输入的宽高深度 filter的宽高个数 补0填充 步长
- * 第二层池化层   filter的宽高(深度不变) 步长
- * 第三层卷积层   filter的宽高个数 补0填充 步长
- * 第四层池化层   filter的宽高(深度不变) 步长
- * 第五层全连接层 输出节点数量
- * 第六层全连接层 输出节点数量(输出层)
- * 学习率
- * 一个样本(输入特征) 用来计算一次前向传播 来初始化LeNet每层
- */
-int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1_channel_number, 
-                      int conv1_filter_height, int conv1_filter_width, int conv1_filter_number, 
-                      int conv1_zero_padding,  int conv1_stride, 
-                      int pool2_filter_height, int pool2_filter_width, int pool2_stride, 
-                      int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
-                      int conv3_zero_padding,  int conv3_stride, 
-                      int pool4_filter_height, int pool4_filter_width, int pool4_stride,
-                      int fc5_output_node,     int fc6_output_node,    double learning_rate, 
-                      const ImageMatrix3d& sample) {
-    if (conv1_input_height <= 0
-            || conv1_input_width <= 0
-            || conv1_channel_number <= 0
-            || conv1_filter_height <= 0
-            || conv1_filter_width <= 0
-            || conv1_filter_number <= 0
-            || conv1_zero_padding < 0
-            || conv1_stride <= 0
-            || pool2_filter_height <= 0
-            || pool2_filter_width <= 0
-            || pool2_stride <= 0 
-            || conv3_filter_height <= 0
-            || conv3_filter_width <= 0
-            || conv3_filter_number <= 0
-            || conv3_zero_padding < 0
-            || conv3_stride <= 0
-            || pool4_filter_height <= 0
-            || pool4_filter_width <= 0
-            || pool4_stride <= 0
-            || fc5_output_node <= 0
-            || fc6_output_node <= 0
-            || learning_rate <= 0.0) {
-        LOG(ERROR) << "LeNet-5 initialize failed, input parameter is wrong";
-        return -1;
-    }
-
-    conv1_input_height_ = conv1_input_height;
-    conv1_input_width_ = conv1_input_width;
-    conv1_channel_number_ = conv1_channel_number;
-    conv1_filter_height_ = conv1_filter_height;
-    conv1_filter_width_ = conv1_filter_width;
-    conv1_filter_number_ = conv1_filter_number;
-    conv1_zero_padding_ = conv1_zero_padding;
-    conv1_stride_ = conv1_stride;
-
-    pool2_filter_height_ = pool2_filter_height;
-    pool2_filter_width_ = pool2_filter_width;
-    pool2_stride_ = pool2_stride;
-
-    conv3_filter_height_ = conv3_filter_height;
-    conv3_filter_width_ = conv3_filter_width;
-    conv3_filter_number_ = conv3_filter_number;
-    conv3_zero_padding_ = conv3_zero_padding;
-    conv3_stride_ = conv3_stride;
-
-    pool4_filter_height_ = pool4_filter_height;
-    pool4_filter_width_ = pool4_filter_width;
-    pool4_stride_ = pool4_stride;
-
-    fc5_output_node_ = fc5_output_node;
-    fc6_output_node_ = fc6_output_node;
-
-    learning_rate_ = learning_rate;
-    
-    //先调用第一层卷积层的初始化 卷积层会初始化权重数组和偏置
-    //后面算出本层的输入 得到输出数组的shape 就能去初始化下一层 依次
-    if (-1 == convolutional_layer1_->Initialize(conv1_input_height, conv1_input_width, conv1_channel_number,
-                                                conv1_filter_height, conv1_filter_width, conv1_filter_number, 
-                                                conv1_zero_padding, conv1_stride)) {
-        LOG(ERROR) << "LeNet-5 initialize failed, convolutional layer 1 input parameter is wrong";
-        return -1;
-    }
-
-    //调用InitLeNetModel 初始化LeNet所有层 通过前向计算一层层得到输出 传入下一层来初始化
-    if (-1 == InitLeNetModel(sample)) {
-        LOG(ERROR) << "LeNet-5 initialize failed, Init LeNet Model occur error";
-        return -1;
-    }
-
-    return 0;
-}
-
 
 
 /*
@@ -347,7 +350,23 @@ int LeNet::InitLeNetModel(const ImageMatrix3d& input_array) {
         LOG(ERROR) << "Init LeNet Model failed, full connected layer 5 forward occur error";
         return -1;
     }
-    
+
+    //初始化new一个浮点数组 保存模型的权值和偏置数据
+    weights_biases_data_size_ = (conv1_filter_number_ * conv1_channel_number_ * 
+                                 conv1_filter_height_ * conv1_filter_width_ +
+                                 conv1_filter_number_ * 1) +
+                                (conv3_filter_number_ * pool2_output_depth *
+                                 conv3_filter_height_ * conv3_filter_width_ +
+                                 conv3_filter_number_ * 1) +
+                                (fc5_input_node_  * fc5_output_node_ + 
+                                 fc5_output_node_ * 1) + 
+                                (fc5_output_node_ * fc6_output_node_ +
+                                 fc6_output_node_ * 1);
+    weights_biases_data_ = std::shared_ptr<double>(new double[weights_biases_data_size_], [](double* data) {
+            delete []data;
+            LOG(INFO) << "successfully release resources!";
+    });
+        
     return 0;
 }
 
@@ -442,7 +461,7 @@ int LeNet::InitLeNetModel(const Matrix3d& input_array) {
     //输入7*7*64=3136*1列向量  输出为512*1列向量 
     auto pool4_output_shape = Matrix::GetShape(max_pooling_layer4_->get_output_array());
     std::tie(pool4_output_depth_, pool4_output_height_, pool4_output_width_) = pool4_output_shape;
-    if (pool4_output_depth_ <=0 
+    if (pool4_output_depth_ <= 0 
             || pool4_output_height_ <= 0
             || pool4_output_width_ <= 0) {
         LOG(ERROR) << "Init LeNet Model failed, pool layer 4 forward occur error";
@@ -459,10 +478,26 @@ int LeNet::InitLeNetModel(const Matrix3d& input_array) {
     Matrix2d fc5_input_array;
     Matrix::Reshape(max_pooling_layer4_->get_output_array(), fc5_input_node_, 1, fc5_input_array);
     if (-1 == neural_network_layer5_->Predict(fc5_input_array, output_array_)) {
-        LOG(ERROR) << "Init LeNet Model failed, full connected layer 5 forward occur error";
+        LOG(ERROR) << "Init LeNet-5 Model failed, full connected layer 5 forward occur error";
         return -1;
     }
-    
+
+    //初始化new一个浮点数组 保存模型的权值和偏置数据
+    weights_biases_data_size_ = (conv1_filter_number_ * conv1_channel_number_ * 
+                                 conv1_filter_height_ * conv1_filter_width_ +
+                                 conv1_filter_number_ * 1) +
+                                (conv3_filter_number_ * pool2_output_depth *
+                                 conv3_filter_height_ * conv3_filter_width_ +
+                                 conv3_filter_number_ * 1) +
+                                (fc5_input_node_  * fc5_output_node_ + 
+                                 fc5_output_node_ * 1) + 
+                                (fc5_output_node_ * fc6_output_node_ +
+                                 fc6_output_node_ * 1);
+    weights_biases_data_ = std::shared_ptr<double>(new double[weights_biases_data_size_], [](double* data) {
+            delete []data;
+            LOG(INFO) << "successfully release resources!";
+    });
+
     return 0;
 }
 
@@ -473,7 +508,13 @@ int LeNet::InitLeNetModel(const Matrix3d& input_array) {
  */
 int LeNet::Train(const Matrix4d& training_sample, 
                  const Matrix3d& training_label, 
+                 double learning_rate, 
                  int batch_size) {
+    if (learning_rate <= 0.0
+            || learning_rate >= 1.0) {
+        LOG(ERROR) << "LeNet-5 train failed, input train learning rate <= 0 or >= 1";
+        return -1;
+    }
     if (batch_size <= 0) {
         LOG(ERROR) << "LeNet-5 train failed, input train batch size <= 0";
         return -1;
@@ -485,6 +526,10 @@ int LeNet::Train(const Matrix4d& training_sample,
     int iterators_count = total_training_sample_size / batch_size;
     for (int i = 0; i < iterators_count; i++) {
         for (int j = 0; j < batch_size; j++) {
+            //停止旗帜
+            if (stop_flag_) {
+                return 0;
+            }
             //累加一个batch次反向传播得到的梯度 
             if (-1 == TrainOneSample(training_sample[i * batch_size + j], 
                                      training_label[i * batch_size + j])) {
@@ -493,7 +538,7 @@ int LeNet::Train(const Matrix4d& training_sample,
             }
         }
         //迭代完成一次 更新一次网络权重 得到batch的平均梯度 梯度下降算法优化更新
-        UpdateWeights(learning_rate_, batch_size);
+        UpdateWeights(learning_rate, batch_size);
     }
 
     return 0;
@@ -506,7 +551,13 @@ int LeNet::Train(const Matrix4d& training_sample,
  */
 int LeNet::Train(const ImageMatrix4d& training_sample, 
                  const Matrix3d& training_label, 
+                 double learning_rate, 
                  int batch_size) {
+    if (learning_rate <= 0.0
+            || learning_rate >= 1.0) {
+        LOG(ERROR) << "LeNet-5 train failed, input train learning rate <= 0 or >= 1";
+        return -1;
+    }
     if (batch_size <= 0) {
         LOG(ERROR) << "LeNet-5 train failed, input train batch size <= 0";
         return -1;
@@ -518,6 +569,10 @@ int LeNet::Train(const ImageMatrix4d& training_sample,
     int iterators_count = total_training_sample_size / batch_size;
     for (int i = 0; i < iterators_count; i++) {
         for (int j = 0; j < batch_size; j++) {
+            //停止旗帜
+            if (stop_flag_) {
+                return 0;
+            }
             //累加一个batch次反向传播得到的梯度 
             if (-1 == TrainOneSample(training_sample[i * batch_size + j], 
                                      training_label[i * batch_size + j])) {
@@ -526,12 +581,12 @@ int LeNet::Train(const ImageMatrix4d& training_sample,
             }
         }
         //迭代完成一次 更新一次网络权重 得到batch的平均梯度 梯度下降算法优化更新
-        UpdateWeights(learning_rate_, batch_size);
+        UpdateWeights(learning_rate, batch_size);
 
         Matrix2d output_array;
         LOG(INFO) << "迭代完成" << i << "次!";
-        Predict(training_sample[8], output_array);
-        LOG(INFO) << "loss: " << Loss(output_array, training_label[8]);
+        Predict(training_sample[0], output_array);
+        LOG(INFO) << "loss: " << Loss(output_array, training_label[0]);
     }
 
     return 0;
@@ -545,10 +600,15 @@ int LeNet::Train(const ImageMatrix4d& training_sample,
  */
 int LeNet::TrainOneSample(const Matrix3d& sample, 
                           const Matrix2d& label) {
+    if (stop_flag_) {
+        return 0;
+    }
+    //if (-1 == Forward(sample, true, 0.5)) {
     if (-1 == Forward(sample)) {
         LOG(ERROR) << "LeNet-5 train failed, forward occur error";
         return -1;
     }
+    //if (-1 == Backward(label, true, 0.5)) {
     if (-1 == Backward(label)) {
         LOG(ERROR) << "LeNet-5 train failed, backward occur error";
         return -1;
@@ -565,10 +625,15 @@ int LeNet::TrainOneSample(const Matrix3d& sample,
  */
 int LeNet::TrainOneSample(const ImageMatrix3d& sample, 
                           const Matrix2d& label) {
+    if (stop_flag_) {
+        return 0;
+    }
+    //if (-1 == Forward(sample, true, 0.5)) {
     if (-1 == Forward(sample)) {
         LOG(ERROR) << "LeNet-5 train failed, forward occur error";
         return -1;
     }
+    //if (-1 == Backward(label, true, 0.5)) {
     if (-1 == Backward(label)) {
         LOG(ERROR) << "LeNet-5 train failed, backward occur error";
         return -1;
@@ -638,7 +703,8 @@ int LeNet::CalcGradient(const Matrix2d& output_array,
  * 5. 计算全连接层5的前向计算结果 这里第4层的输出reshape成3136*1的列向量 送入fc 得到512*1输出
  * 6. 计算全连接层6的前向计算结果 输入512*1 输出10*1 表示预测的0-9 10个数字的类别结果
  */
-int LeNet::Forward(const ImageMatrix3d& input_array) { 
+int LeNet::Forward(const ImageMatrix3d& input_array, 
+                   bool dropout, float p) { 
     //1. 计算卷积层1的前向计算结果 补0填充2 输入28*28*1变32*32*1 filter5*5*32 步长1 得到28*28*32输出特征图
     if (-1 == convolutional_layer1_->Forward(input_array)) {
         LOG(ERROR) << "LeNet-5 forward failed, conv layer 1 forward occur error";
@@ -666,7 +732,7 @@ int LeNet::Forward(const ImageMatrix3d& input_array) {
     //5. 计算全连接层5的前向计算结果和全连接层6的前向计算结果 这里第4层的输出reshape成3136*1的列向量 送入fc 
     Matrix2d fc5_input_array;
     Matrix::Reshape(max_pooling_layer4_->get_output_array(), fc5_input_node_, 1, fc5_input_array);
-    if (-1 == neural_network_layer5_->Predict(fc5_input_array, output_array_)) {
+    if (-1 == neural_network_layer5_->Predict(fc5_input_array, output_array_, dropout, p)) {
         LOG(ERROR) << "LeNet-5 forward failed, full connected layer 5 forward occur error";
         return -1;
     }
@@ -684,7 +750,8 @@ int LeNet::Forward(const ImageMatrix3d& input_array) {
  * 5. 计算全连接层5的前向计算结果 这里第4层的输出reshape成3136*1的列向量 送入fc 得到512*1输出
  * 6. 计算全连接层6的前向计算结果 输入512*1 输出10*1 表示预测的0-9 10个数字的类别结果
  */
-int LeNet::Forward(const Matrix3d& input_array) { 
+int LeNet::Forward(const Matrix3d& input_array, 
+                   bool dropout, float p) { 
     //1. 计算卷积层1的前向计算结果 补0填充2 输入28*28*1变32*32*1 filter5*5*32 步长1 得到28*28*32输出特征图
     if (-1 == convolutional_layer1_->Forward(input_array)) {
         LOG(ERROR) << "LeNet-5 forward failed, conv layer 1 forward occur error";
@@ -712,7 +779,7 @@ int LeNet::Forward(const Matrix3d& input_array) {
     //5. 计算全连接层5的前向计算结果和全连接层6的前向计算结果 这里第4层的输出reshape成3136*1的列向量 送入fc 
     Matrix2d fc5_input_array;
     Matrix::Reshape(max_pooling_layer4_->get_output_array(), fc5_input_node_, 1, fc5_input_array);
-    if (-1 == neural_network_layer5_->Predict(fc5_input_array, output_array_)) {
+    if (-1 == neural_network_layer5_->Predict(fc5_input_array, output_array_, dropout, p)) {
         LOG(ERROR) << "LeNet-5 forward failed, full connected layer 5 forward occur error";
         return -1;
     }
@@ -729,11 +796,12 @@ int LeNet::Forward(const Matrix3d& input_array) {
  * 4. 计算池化层2的误差传递 输入敏感图14*14*32 传递给上一层28*28*32
  * 5. 计算卷积层1的误差项   和权重梯度 输入敏感图28*28*32 传递给上一层28*28*1
  */
-int LeNet::Backward(const Matrix2d& label) {
+int LeNet::Backward(const Matrix2d& label, 
+                   bool dropout, float p) { 
     //1. 计算全连接层5的误差项 和权重梯度  得到最靠输入的fc层误差项数组3136*1 
     Matrix2d fc5_delta_array;
     Matrix3d pool4_output_delta_array;
-    if (-1 == neural_network_layer5_->CalcGradient(output_array_, label, fc5_delta_array)) {
+    if (-1 == neural_network_layer5_->CalcGradient(output_array_, label, fc5_delta_array, dropout, p)) {
         LOG(ERROR) << "LeNet-5 backward failed, full connected layer 5 backward occur error";
         return -1;
     }
@@ -778,6 +846,123 @@ double LeNet::Loss(const Matrix2d& output_array,
     return Matrix::MeanSquareError(output_array, label);
 }
 
+/*
+ * 保存模型
+ */
+int LeNet::DumpModel(std::string weights_file) {
+    int index = 0;
+    if (-1 == convolutional_layer1_->DumpModel(weights_biases_data_, index)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, conv layer 1 Dump Model occur error";
+        return -1;
+    }
+    if (-1 == convolutional_layer3_->DumpModel(weights_biases_data_, index)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, conv layer 3 Dump Model occur error";
+        return -1;
+    }
+    if (-1 == neural_network_layer5_->DumpModel(weights_biases_data_, index)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, full connected layer 5 Dump Model occur error";
+        return -1;
+    }
+   
+    //保存网络权值
+    std::ofstream lenet_weights_file;
+    lenet_weights_file.open(weights_file.c_str(), 
+                            std::ios::out | std::ios::binary);
+    if (!lenet_weights_file.is_open()) {
+        LOG(ERROR) << "open file failed, filename is :" << weights_file.c_str();
+        return -1;
+    }
+    lenet_weights_file.write(reinterpret_cast<const char*>(weights_biases_data_.get()),
+                             sizeof(double) * weights_biases_data_size_);
+    lenet_weights_file.close();
 
+    //把文件的权值读出来 check一下 是否保存正确了
+    std::ifstream read_weights_file;
+    read_weights_file.open(weights_file.c_str(), 
+                           std::ios::in | std::ios::binary);
+    if (!read_weights_file.is_open()) {
+        LOG(ERROR) << "open file failed, filename is :" << weights_file.c_str();
+        return -1;
+    }
+    std::shared_ptr<double> read_weights_biases_data(new double[weights_biases_data_size_], [](double* data) {
+            delete []data;
+    });
+    read_weights_file.read(reinterpret_cast<char*>(read_weights_biases_data.get()), 
+                           sizeof(double) * weights_biases_data_size_);
+    read_weights_file.close();
+
+    Matrix4d conv1_weights;
+    Matrix1d conv1_biases; 
+    Matrix4d conv3_weights;
+    Matrix1d conv3_biases;
+    Matrix3d fc5_weights;   
+    Matrix3d fc5_biases;
+    index = 0;
+    if (-1 == Matrix::CopyTo(read_weights_biases_data, 0, index, 
+                             conv1_filter_number_, conv1_channel_number_, 
+                             conv1_filter_height_, conv1_filter_width_, 
+                             conv1_weights, conv1_biases)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        return -1;
+    }
+    if (-1 == Matrix::CopyTo(read_weights_biases_data, index, index,  
+                             conv3_filter_number_, conv1_filter_number_, 
+                             conv3_filter_height_, conv3_filter_width_, 
+                             conv3_weights, conv3_biases)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        return -1;
+    }
+    if (-1 == Matrix::CopyTo(read_weights_biases_data, index, 2,  
+                             fc5_input_node_, fc5_output_node_, 
+                             fc6_output_node_,
+                             fc5_weights, fc5_biases)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        return -1;
+    }
+
+    if (!IsDumpModelSuccess(conv1_weights, conv1_biases, 
+                            conv3_weights, conv3_biases, 
+                            fc5_weights,   fc5_biases)) {
+        LOG(ERROR) << "LeNet-t Save Model failed, save model is not euqal actually weights";
+        return -1;
+    }
+    LOG(INFO) << "Successfully Dump LeNet-5 Model in filename: " << weights_file.c_str();
+    
+    return 0;
+}
+
+/*
+ * check保存模型是否成功
+ */
+bool LeNet::IsDumpModelSuccess(const Matrix4d& conv1_weights, const Matrix1d& conv1_biases, 
+                               const Matrix4d& conv3_weights, const Matrix1d& conv3_biases, 
+                               const Matrix3d& fc5_weights,   const Matrix3d& fc5_biases) {
+    if (!convolutional_layer1_->IsDumpModelSuccess(conv1_weights, conv1_biases)) {
+        LOG(ERROR) << "Dump LeNet-5 Model Failed";
+        return false;
+    }
+    if (!convolutional_layer3_->IsDumpModelSuccess(conv3_weights, conv3_biases)) {
+        LOG(ERROR) << "Dump LeNet-5 Model Failed";
+        return false;
+    }
+    if (!neural_network_layer5_->IsDumpModelSuccess(fc5_weights, fc5_biases)) {
+        LOG(ERROR) << "Dump LeNet-5 Model Failed";
+        return false;
+    }
+
+    return true;
+}
+
+/*
+ * 打印权值
+ */
+void LeNet::Dump() {
+    LOG(INFO) << "conv layer 1:";
+    convolutional_layer1_->Dump();
+    LOG(INFO) << "conv layer 3:";
+    convolutional_layer3_->Dump();
+    LOG(INFO) << "full connected layer 5:";
+    neural_network_layer5_->Dump();
+}
 
 }       //namespace cnn
