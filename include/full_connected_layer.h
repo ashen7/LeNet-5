@@ -114,6 +114,7 @@ public:
     int Forward(const Matrix2d& input_array, bool dropout=false, float p=0.0);
     int Backward(const Matrix2d& output_delta_array, bool dropout=false, float p=0.0);
     void UpdateWeights(double learning_rate, int batch_size);
+    void UpdateWeightsOld(double learning_rate, int batch_size);
     void Dump() const noexcept;
 
 protected:
