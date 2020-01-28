@@ -24,6 +24,7 @@
 #include <glog/logging.h>
 
 #include "utility/matrix_math_function.hpp"
+#include "utility/matrix_gpu.h"
 
 namespace dnn {
 
@@ -74,7 +75,33 @@ int FullConnectedLayer::Forward(const Matrix2d& input_array,
                                 bool dropout, float p) {
     //得到本层输入矩阵 也就是本层的节点值
     input_array_ = input_array;
-
+#if GPU
+    if (is_input_layer_) {
+        if (dropout) {
+            if (-1 == calculate::cuda::FullConnectedLayerForward(weights_array_, input_array_, 
+                                                                 biases_array_, binomial_array_,
+                                                                 output_array_, is_input_layer_,
+                                                                 dropout, p)) {
+                LOG(ERROR) << "full connected layer forward failed";
+                return -1;
+            }
+        } else {
+            if (-1 == calculate::cuda::FullConnectedLayerForward(weights_array_, input_array_, 
+                                                                 biases_array_, output_array_,
+                                                                 is_input_layer_)) {
+                LOG(ERROR) << "full connected layer forward failed";
+                return -1;
+            }
+        }
+    } else {
+        if (-1 == calculate::cuda::FullConnectedLayerForward(weights_array_, input_array_, 
+                                                             biases_array_, output_array_)) {
+            LOG(ERROR) << "full connected layer forward failed";
+            return -1;
+        }
+    }
+    
+#else
     //矩阵相乘  w .* x 得到输出数组
     if (-1 == Matrix::DotProduct(weights_array_, input_array_, output_array_)) {
         LOG(ERROR) << "full connected layer forward failed";
@@ -113,6 +140,7 @@ int FullConnectedLayer::Forward(const Matrix2d& input_array,
             return -1;
         }
     }
+#endif
 
     return 0;
 }
@@ -125,6 +153,26 @@ int FullConnectedLayer::Forward(const Matrix2d& input_array,
  */
 int FullConnectedLayer::Backward(const Matrix2d& output_delta_array, 
                                  bool dropout, float p) {
+#if GPU
+    if (!is_input_layer_ && dropout) {
+        if (-1 == calculate::cuda::FullConnectedLayerBackward(output_delta_array, weights_array_, 
+                                                              input_array_, binomial_array_, 
+                                                              delta_array_, weights_gradient_array_, 
+                                                              biases_gradient_array_, is_input_layer_, 
+                                                              dropout, p)) {
+            LOG(ERROR) << "full connected layer backward failed";
+            return -1;
+        }
+    } else {
+        if (-1 == calculate::cuda::FullConnectedLayerBackward(output_delta_array, weights_array_, 
+                                                              input_array_, delta_array_, 
+                                                              weights_gradient_array_, 
+                                                              biases_gradient_array_)) {
+            LOG(ERROR) << "full connected layer backward failed";
+            return -1;
+        }
+    }
+#else
     Matrix2d temp_array1;
     if (sigmoid_backward_callback_) {
         // 计算x * (1 - x)
@@ -187,12 +235,14 @@ int FullConnectedLayer::Backward(const Matrix2d& output_delta_array,
         return -1;
     }
     
+    
     //一个batch反向传播计算的权重梯度累加起来
     Matrix::Add(weights_gradient_array_, weights_gradient_array, weights_gradient_array_);
     //利用上一层的误差项delta_array 计算biases的梯度 delta_array
     //一个batch反向传播计算的偏置梯度累加起来
     Matrix::Add(biases_gradient_array_, output_delta_array, biases_gradient_array_);
-    
+#endif    
+
     return 0;
 }
 
@@ -202,6 +252,22 @@ int FullConnectedLayer::Backward(const Matrix2d& output_delta_array,
  * b = b + learning_rate * b_gradient
  */
 void FullConnectedLayer::UpdateWeights(double learning_rate, int batch_size) {
+    //梯度下降优化
+    Matrix::GradientDescent(weights_gradient_array_, biases_gradient_array_, 
+                            learning_rate, batch_size, 
+                            weights_array_, biases_array_);
+    //将权重梯度置0 方便下个batch计算平均梯度
+    Matrix::CreateZeros(Matrix::GetShape(weights_gradient_array_), weights_gradient_array_);
+    //将偏置梯度置0 方便下个batch计算平均梯度
+    Matrix::CreateZeros(Matrix::GetShape(biases_gradient_array_), biases_gradient_array_);
+}
+
+/*
+ * 利用梯度下降优化算法(就是让值朝着梯度的反方向走) 更新权重 
+ * w = w + learning_rate * w_gradient
+ * b = b + learning_rate * b_gradient
+ */
+void FullConnectedLayer::UpdateWeightsOld(double learning_rate, int batch_size) {
     //得到一个batch的平均权重梯度
     Matrix::MatrixDivValue(weights_gradient_array_, batch_size, weights_gradient_array_);
     //权重的变化数组 
