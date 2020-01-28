@@ -147,6 +147,7 @@ int LeNet::Initialize(int conv1_input_height,  int conv1_input_width,  int conv1
         return -1;
     }
     
+
     return 0;
 }
 
@@ -568,7 +569,9 @@ int LeNet::Train(const ImageMatrix4d& training_sample,
     //一epoch要迭代的次数
     int iterators_count = total_training_sample_size / batch_size;
     for (int i = 0; i < iterators_count; i++) {
+    //for (int i = 0; i < 1; i++) {
         for (int j = 0; j < batch_size; j++) {
+        //for (int j = 0; j < training_sample.size(); j++) {
             //停止旗帜
             if (stop_flag_) {
                 return 0;
@@ -576,6 +579,8 @@ int LeNet::Train(const ImageMatrix4d& training_sample,
             //累加一个batch次反向传播得到的梯度 
             if (-1 == TrainOneSample(training_sample[i * batch_size + j], 
                                      training_label[i * batch_size + j])) {
+            //if (-1 == TrainOneSample(training_sample[i], 
+            //                         training_label[i])) {
                 LOG(ERROR) << "LeNet-5 train failed";
                 return -1;
             }
@@ -603,13 +608,11 @@ int LeNet::TrainOneSample(const Matrix3d& sample,
     if (stop_flag_) {
         return 0;
     }
-    //if (-1 == Forward(sample, true, 0.5)) {
-    if (-1 == Forward(sample)) {
+    if (-1 == Forward(sample, true, 0.5)) {
         LOG(ERROR) << "LeNet-5 train failed, forward occur error";
         return -1;
     }
-    //if (-1 == Backward(label, true, 0.5)) {
-    if (-1 == Backward(label)) {
+    if (-1 == Backward(label, true, 0.5)) {
         LOG(ERROR) << "LeNet-5 train failed, backward occur error";
         return -1;
     }
@@ -628,13 +631,11 @@ int LeNet::TrainOneSample(const ImageMatrix3d& sample,
     if (stop_flag_) {
         return 0;
     }
-    //if (-1 == Forward(sample, true, 0.5)) {
-    if (-1 == Forward(sample)) {
+    if (-1 == Forward(sample, true, 0.5)) {
         LOG(ERROR) << "LeNet-5 train failed, forward occur error";
         return -1;
     }
-    //if (-1 == Backward(label, true, 0.5)) {
-    if (-1 == Backward(label)) {
+    if (-1 == Backward(label, true, 0.5)) {
         LOG(ERROR) << "LeNet-5 train failed, backward occur error";
         return -1;
     }
@@ -852,15 +853,15 @@ double LeNet::Loss(const Matrix2d& output_array,
 int LeNet::DumpModel(std::string weights_file) {
     int index = 0;
     if (-1 == convolutional_layer1_->DumpModel(weights_biases_data_, index)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, conv layer 1 Dump Model occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, conv layer 1 Dump Model occur error";
         return -1;
     }
     if (-1 == convolutional_layer3_->DumpModel(weights_biases_data_, index)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, conv layer 3 Dump Model occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, conv layer 3 Dump Model occur error";
         return -1;
     }
     if (-1 == neural_network_layer5_->DumpModel(weights_biases_data_, index)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, full connected layer 5 Dump Model occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, full connected layer 5 Dump Model occur error";
         return -1;
     }
    
@@ -902,28 +903,28 @@ int LeNet::DumpModel(std::string weights_file) {
                              conv1_filter_number_, conv1_channel_number_, 
                              conv1_filter_height_, conv1_filter_width_, 
                              conv1_weights, conv1_biases)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, check result occur error";
         return -1;
     }
     if (-1 == Matrix::CopyTo(read_weights_biases_data, index, index,  
                              conv3_filter_number_, conv1_filter_number_, 
                              conv3_filter_height_, conv3_filter_width_, 
                              conv3_weights, conv3_biases)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, check result occur error";
         return -1;
     }
     if (-1 == Matrix::CopyTo(read_weights_biases_data, index, 2,  
                              fc5_input_node_, fc5_output_node_, 
                              fc6_output_node_,
                              fc5_weights, fc5_biases)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, check result occur error";
+        LOG(ERROR) << "LeNet-5 Save Model failed, check result occur error";
         return -1;
     }
 
     if (!IsDumpModelSuccess(conv1_weights, conv1_biases, 
                             conv3_weights, conv3_biases, 
                             fc5_weights,   fc5_biases)) {
-        LOG(ERROR) << "LeNet-t Save Model failed, save model is not euqal actually weights";
+        LOG(ERROR) << "LeNet-5 Save Model failed, save model is not euqal actually weights";
         return -1;
     }
     LOG(INFO) << "Successfully Dump LeNet-5 Model in filename: " << weights_file.c_str();
