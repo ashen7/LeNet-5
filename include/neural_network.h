@@ -57,6 +57,10 @@ public:
                      const Matrix2d& label, 
                      Matrix2d& fc_input_layer_delta_array, 
                      bool dropout=false, float p=0.0);
+    int CalcGradientOld(const Matrix2d& output_array, 
+                        const Matrix2d& label, 
+                        Matrix2d& fc_input_layer_delta_array, 
+                        bool dropout=false, float p=0.0);
     void UpdateWeights(double learning_rate, int batch_size);
     void Dump() const noexcept;
     int DumpModel(std::shared_ptr<double> weights_array, int& index);
