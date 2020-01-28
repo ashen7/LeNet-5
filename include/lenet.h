@@ -86,7 +86,7 @@ public:
                    int conv3_filter_height, int conv3_filter_width, int conv3_filter_number, 
                    int conv3_zero_padding,  int conv3_stride, 
                    int pool4_filter_height, int pool4_filter_width, int pool4_stride, 
-                   int fc5_output_node,     int fc6_output_node,    const Matrix3d& sample);
+                   int fc5_output_node,     int fc6_output_node,    const Matrix3d& sample); 
     int Initialize(int conv1_input_height,  int conv1_input_width,  int conv1_channel_number, 
                    int conv1_filter_height, int conv1_filter_width, int conv1_filter_number, 
                    int conv1_zero_padding,  int conv1_stride, 
