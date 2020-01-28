@@ -25,6 +25,7 @@
 #include <glog/logging.h>
 
 #include "utility/matrix_math_function.hpp"
+#include "utility/matrix_gpu.h"
 
 namespace cnn {
 
@@ -84,14 +85,26 @@ int ConvolutionalLayer::Initialize(int input_height, int input_width, int channe
    
     //绑定激活函数
     if (nullptr == relu_forward_callback_) {
+#if GPU
         set_relu_forward_callback(std::bind(Activator::ReLuForward3d, 
                                             std::placeholders::_1,
                                             std::placeholders::_2));
+#else 
+        set_relu_forward_callback(std::bind(calculate::cuda::ReLuForward3d, 
+                                            std::placeholders::_1,
+                                            std::placeholders::_2));
+#endif
     }
     if (nullptr == relu_backward_callback_) {
+#if GPU
         set_relu_backward_callback(std::bind(Activator::ReLuBackward3d, 
                                              std::placeholders::_1,
                                              std::placeholders::_2));
+#else
+        set_relu_backward_callback(std::bind(calculate::cuda::ReLuBackward3d, 
+                                             std::placeholders::_1,
+                                             std::placeholders::_2));
+#endif
     }
 
     return 0;
