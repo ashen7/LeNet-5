@@ -43,6 +43,7 @@
 #include "max_pooling_layer.h"
 #include "neural_network.h"
 #include "full_connected_layer.h"
+#include "utility/matrix_gpu.h"
 #include "utility/matrix_math_function.hpp"
 
 //Google GFlags
@@ -164,6 +165,7 @@ int TrainAndEvaluate(std::string mnist_train_path,
         if (FLAGS_stop_flag) {
             break;
         }
+        return 0;
         //得到当前时间
         char now[60] = { 0 };
         calculate::time::GetCurrentTime(now);
@@ -245,16 +247,30 @@ int main(int argc, char* argv[]) {
     std::string mnist_path = "./data/";
     std::string mnist_train_path = mnist_path + "mnist_training_set/";
     std::string mnist_test_path = mnist_path + "mnist_test_set/";
+#if GPU 
+    if (!calculate::cuda::InitializeCUDA()) {
+        LOG(ERROR) << "initialize CUDA failed";
+        google::ShutdownGoogleLogging();
+        return 0;
+    } else {
+        LOG(INFO) << "successfully initialize CUDA!";
+        calculate::cuda::GpuInfoShow();
+    }
+#endif
     TrainAndEvaluate(mnist_train_path, mnist_test_path);
-    SingletonLeNet::Instance().DumpModel(FLAGS_lenet_weights_output_file);
+
+    //SingletonLeNet::Instance().DumpModel(FLAGS_lenet_weights_output_file);
     
     //记录结束时间
     std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
     //设置单位为秒
-    std::chrono::duration<int, std::ratio<1, 1>> sec = std::chrono::duration_cast<
-                                                       std::chrono::seconds>(end - begin);
+    //std::chrono::duration<int, std::ratio<1, 1>> sec = std::chrono::duration_cast<
+    //                                                   std::chrono::seconds>(end - begin);
+    std::chrono::duration<int, std::milli> milli = std::chrono::duration_cast<
+                                                   std::chrono::milliseconds>(end - begin);
     //打印耗时
-    LOG(INFO) << "programming is exiting, the total time is: " << sec.count() << "s";
+    //LOG(INFO) << "programming is exiting, the total time is: " << sec.count() << "s";
+    LOG(INFO) << "programming is exiting, the total time is: " << milli.count() << "ms";
     google::ShutdownGoogleLogging();
     
     return 0;
