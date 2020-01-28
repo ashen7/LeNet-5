@@ -26,6 +26,7 @@
 #include <glog/logging.h>
 
 #include "utility/matrix_math_function.hpp"
+#include "utility/matrix_gpu.h"
 
 namespace dnn {
 NeuralNetwork::NeuralNetwork() {
@@ -60,30 +61,54 @@ int NeuralNetwork::Initialize(const std::vector<size_t>& fc_layer_nodes_array) {
 
     //设置全连接层的前向计算激活函数回调
     if (nullptr == FullConnectedLayer::get_sigmoid_forward_callback()) {
+#if GPU
         FullConnectedLayer::set_sigmoid_forward_callback(std::bind(Activator::SigmoidForward, 
                                                          std::placeholders::_1,
                                                          std::placeholders::_2));
+#else
+        FullConnectedLayer::set_sigmoid_forward_callback(std::bind(calculate::cuda::SigmoidForward, 
+                                                         std::placeholders::_1,
+                                                         std::placeholders::_2));
+#endif
     }
 
     //设置全连接层的反向计算激活函数回调
     if (nullptr == FullConnectedLayer::get_sigmoid_backward_callback()) {
+#if GPU
         FullConnectedLayer::set_sigmoid_backward_callback(std::bind(Activator::SigmoidBackward, 
                                                           std::placeholders::_1,
                                                           std::placeholders::_2));
+#else
+        FullConnectedLayer::set_sigmoid_backward_callback(std::bind(calculate::cuda::SigmoidBackward, 
+                                                          std::placeholders::_1,
+                                                          std::placeholders::_2));
+#endif
     }
 
     //设置全连接层的前向计算激活函数回调
     if (nullptr == FullConnectedLayer::get_relu_forward_callback()) {
+#if GPU
         FullConnectedLayer::set_relu_forward_callback(std::bind(Activator::ReLuForward2d, 
                                                       std::placeholders::_1,
                                                       std::placeholders::_2));
+#else
+        FullConnectedLayer::set_relu_forward_callback(std::bind(calculate::cuda::ReLuForward2d, 
+                                                      std::placeholders::_1,
+                                                      std::placeholders::_2));
+#endif
     }
 
     //设置全连接层的反向计算激活函数回调
     if (nullptr == FullConnectedLayer::get_relu_backward_callback()) {
+#if GPU
         FullConnectedLayer::set_relu_backward_callback(std::bind(Activator::ReLuBackward2d, 
                                                        std::placeholders::_1,
                                                        std::placeholders::_2));
+#else
+        FullConnectedLayer::set_relu_forward_callback(std::bind(calculate::cuda::ReLuBackward2d, 
+                                                      std::placeholders::_1,
+                                                      std::placeholders::_2));
+#endif
     }
 
     return 0;
@@ -162,6 +187,7 @@ int NeuralNetwork::Predict(const Matrix2d& input_array,
     return 0;
 }
 
+
 /*
  * 反向计算 计算误差项和梯度 
  * 节点是输出层是 输出节点误差项delta=output(1 - output)(label - output)
@@ -172,6 +198,45 @@ int NeuralNetwork::CalcGradient(const Matrix2d& output_array,
                                 const Matrix2d& label, 
                                 Matrix2d& fc_input_layer_delta_array, 
                                 bool dropout, float p) {
+    Matrix2d delta_array; 
+    //一个函数 计算之前3个函数的运算
+    if (FullConnectedLayer::get_sigmoid_backward_callback()) {
+        if (-1 == Matrix::CalcDiff(output_array, label, delta_array)) {
+            LOG(ERROR) << "neural network backward failed";
+            return -1;
+        }
+    } else {
+        LOG(ERROR) << "neural network backward failed, sigmoid backward activator is empty";
+        return -1;
+    }
+
+    //从输出层往前反向计算误差项 和梯度
+    for (int i = fc_layers_array_.size() - 1; i >= 0; i--) {
+        if (i == fc_layers_array_.size() - 1) {
+            fc_layers_array_[i]->Backward(delta_array, dropout, p);
+        } else {
+            //用后一层的delta array 去得到本层的delta array和本层的权重梯度 偏置梯度
+            fc_layers_array_[i]->Backward(fc_layers_array_[i + 1]->get_delta_array(), dropout, p);
+        }
+    }
+    
+    //第一层fc的delta array赋值出来
+    fc_input_layer_delta_array = fc_layers_array_[0]->get_delta_array();
+
+    return 0;
+}
+
+//利用梯度下降优化算法 更新网络的权值
+/*
+ * 反向计算 计算误差项和梯度 
+ * 节点是输出层是 输出节点误差项delta=output(1 - output)(label - output)
+ * 通过输出层的delta 从输出层反向计算 依次得到前面每层的误差项 
+ * 得到误差项再计算梯度 更新权重使用
+ */
+int NeuralNetwork::CalcGradientOld(const Matrix2d& output_array, 
+                                   const Matrix2d& label, 
+                                   Matrix2d& fc_input_layer_delta_array, 
+                                   bool dropout, float p) {
     //得到output(1 - output)
     Matrix2d delta_array; 
     if (FullConnectedLayer::get_sigmoid_backward_callback()) {
